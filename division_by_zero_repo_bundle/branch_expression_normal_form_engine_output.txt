@@ -1,0 +1,75 @@
+================================================================================
+expression: x/0
+branch count: 1
+  branch 1:
+    guard: 0 = 0
+    detector: D_(0) = 1
+    expression: x
+================================================================================
+expression: x/(x-1)
+branch count: 2
+  branch 1:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    expression: x/(x - 1)
+  branch 2:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    expression: x
+================================================================================
+expression: x/((x-x)+(y-y))
+branch count: 1
+  branch 1:
+    guard: 0 = 0
+    detector: D_(0) = 1
+    expression: x
+================================================================================
+expression: (x+1)/((a+b)-(b+a)) + 3
+branch count: 1
+  branch 1:
+    guard: 0 = 0
+    detector: D_(0) = 1
+    expression: x + 4
+================================================================================
+expression: (x/(y-y)) - x
+branch count: 1
+  branch 1:
+    guard: 0 = 0
+    detector: D_(0) = 1
+    expression: 0
+================================================================================
+expression: (u/((v-v))) + (w/(z-1))
+branch count: 2
+  branch 1:
+    guard: 0 = 0 and z - 1 = 0
+    detector: D_(0) = 1 and D_(z - 1) = 1
+    expression: u + w
+  branch 2:
+    guard: z - 1 != 0 and 0 = 0
+    detector: N_(z - 1) = 1 and D_(0) = 1
+    expression: u + w/(z - 1)
+================================================================================
+expression: (a/(b-b)) * (c/(d-1))
+branch count: 1
+  branch 1:
+    guard: 0 = 0
+    detector: D_(0) = 1
+    expression: a*c
+================================================================================
+expression: ((p/0)-p) + q
+branch count: 1
+  branch 1:
+    guard: 0 = 0
+    detector: D_(0) = 1
+    expression: q
+================================================================================
+expression: (x/(x-1)) + (y/(y-y))
+branch count: 2
+  branch 1:
+    guard: 0 = 0 and x - 1 = 0
+    detector: D_(0) = 1 and D_(x - 1) = 1
+    expression: x + y
+  branch 2:
+    guard: x - 1 != 0 and 0 = 0
+    detector: N_(x - 1) = 1 and D_(0) = 1
+    expression: x/(x - 1) + y

@@ -1,0 +1,21 @@
+# From your local machine or a shell with GitHub access
+
+git clone https://github.com/archi369-ux/division_by_0.git
+cd division_by_0
+
+# Copy these downloaded files into the repo root first:
+# - equation_solver_draft_v1.md
+# - branch_equation_parser_verifier.py
+# - branch_equation_parser_verifier_output.txt
+
+# Optional: keep names as-is, or rename for the repo
+# mv equation_solver_draft_v1.md equation_solver_draft_v1.md
+# mv branch_equation_parser_verifier.py branch_equation_parser_verifier.py
+# mv branch_equation_parser_verifier_output.txt branch_equation_parser_verifier_output.txt
+
+git add equation_solver_draft_v1.md \
+        branch_equation_parser_verifier.py \
+        branch_equation_parser_verifier_output.txt
+
+git commit -m "Add Equation Solver Draft v1 and parser-based verifier"
+git push origin main

@@ -1,0 +1,234 @@
+========================================================================
+Case 1 / Example 1
+case_type: AB_eq_C
+  branch Z:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    transformed equation: x = 2
+    status: contradiction
+    solutions: []
+  branch NZ:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    transformed equation: x = 2*x - 2
+    status: ok
+    solutions: [2]
+========================================================================
+Case 1 / Example 2
+case_type: AB_eq_C
+  branch Z:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    transformed equation: x + 1 = 3
+    status: contradiction
+    solutions: []
+  branch NZ:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    transformed equation: x + 1 = 3*x - 3
+    status: ok
+    solutions: [2]
+========================================================================
+Case 2 / Example 1
+case_type: C_eq_AB
+  branch Z:
+    guard: x = 0
+    detector: D_(x) = 1
+    transformed equation: 2 = x + 2
+    status: ok
+    solutions: [0]
+  branch NZ:
+    guard: x != 0
+    detector: N_(x) = 1
+    transformed equation: 2*x = x + 2
+    status: ok
+    solutions: [2]
+========================================================================
+Case 2 / Example 2
+case_type: C_eq_AB
+  branch Z:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    transformed equation: 3 = x + 1
+    status: contradiction
+    solutions: []
+  branch NZ:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    transformed equation: 3*x - 3 = x + 1
+    status: ok
+    solutions: [2]
+========================================================================
+Case 3 / Example 1
+case_type: AB_eq_CD
+  branch ZZ:
+    guard: x - 1 = 0 and x - 1 = 0
+    detector: D_(x - 1) = 1 and D_(x - 1) = 1
+    transformed equation: x + 1 = 3
+    status: contradiction
+    solutions: []
+  branch ZN:
+    guard: x - 1 = 0 and x - 1 != 0
+    detector: D_(x - 1) = 1 and N_(x - 1) = 1
+    transformed equation: (x - 1)*(x + 1) = 3
+    status: contradiction
+    solutions: []
+  branch NZ:
+    guard: x - 1 != 0 and x - 1 = 0
+    detector: N_(x - 1) = 1 and D_(x - 1) = 1
+    transformed equation: x + 1 = 3*x - 3
+    status: contradiction
+    solutions: []
+  branch NZ:
+    guard: x - 1 != 0 and x - 1 != 0
+    detector: N_(x - 1) = 1 and N_(x - 1) = 1
+    transformed equation: (x - 1)*(x + 1) = 3*x - 3
+    status: ok
+    solutions: [2]
+========================================================================
+Case 3 / Example 2
+case_type: AB_eq_CD
+  branch ZZ:
+    guard: x = 0 and x + 1 = 0
+    detector: D_(x) = 1 and D_(x + 1) = 1
+    transformed equation: x = x + 1
+    status: impossible
+    solutions: []
+  branch ZN:
+    guard: x = 0 and x + 1 != 0
+    detector: D_(x) = 1 and N_(x + 1) = 1
+    transformed equation: x*(x + 1) = x + 1
+    status: contradiction
+    solutions: []
+  branch NZ:
+    guard: x != 0 and x + 1 = 0
+    detector: N_(x) = 1 and D_(x + 1) = 1
+    transformed equation: x = x*(x + 1)
+    status: contradiction
+    solutions: []
+  branch NZ:
+    guard: x != 0 and x + 1 != 0
+    detector: N_(x) = 1 and N_(x + 1) = 1
+    transformed equation: True
+    status: tautology
+    solutions: all real x satisfying x != 0 and x + 1 != 0
+========================================================================
+Case 4 / Example 1
+case_type: AB_eq_A
+  branch Z:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    transformed equation: True
+    status: ok
+    solutions: [1]
+  branch NZ:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    transformed equation: x = x*(x - 1)
+    status: ok
+    solutions: [0, 2]
+========================================================================
+Case 4 / Example 2
+case_type: AB_eq_A
+  branch Z:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    transformed equation: True
+    status: ok
+    solutions: [1]
+  branch NZ:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    transformed equation: x + 1 = (x - 1)*(x + 1)
+    status: ok
+    solutions: [-1, 2]
+========================================================================
+Case 5 / Example 1
+case_type: AB_eq_B
+  branch Z:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    transformed equation: x*(x - 1) = x - 1
+    status: ok
+    solutions: [1]
+  branch NZ:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    transformed equation: x*(x - 1) = (x - 1)**2
+    status: contradiction
+    solutions: []
+========================================================================
+Case 5 / Example 2
+case_type: AB_eq_B
+  branch Z:
+    guard: x = 0
+    detector: D_(x) = 1
+    transformed equation: x*(x + 1) = x
+    status: ok
+    solutions: [0]
+  branch NZ:
+    guard: x != 0
+    detector: N_(x) = 1
+    transformed equation: x*(x + 1) = x**2
+    status: contradiction
+    solutions: []
+========================================================================
+Case 6 / Example 1
+case_type: AB_eq_0
+  branch Z:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    transformed equation: x = 0
+    status: contradiction
+    solutions: []
+  branch NZ:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    transformed equation: x = 0
+    status: ok
+    solutions: [0]
+========================================================================
+Case 6 / Example 2
+case_type: AB_eq_0
+  branch Z:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    transformed equation: x - 1 = 0
+    status: ok
+    solutions: [1]
+  branch NZ:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    transformed equation: x - 1 = 0
+    status: contradiction
+    solutions: []
+========================================================================
+Case 7 / Example 1
+case_type: AB_eq_1
+  branch Z:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    transformed equation: x = 1
+    status: ok
+    solutions: [1]
+  branch NZ:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    transformed equation: False
+    status: contradiction
+    solutions: []
+========================================================================
+Case 7 / Example 2
+case_type: AB_eq_1
+  branch Z:
+    guard: x - 1 = 0
+    detector: D_(x - 1) = 1
+    transformed equation: x - 1 = 1
+    status: contradiction
+    solutions: []
+  branch NZ:
+    guard: x - 1 != 0
+    detector: N_(x - 1) = 1
+    transformed equation: True
+    status: tautology
+    solutions: all real x satisfying x - 1 != 0
