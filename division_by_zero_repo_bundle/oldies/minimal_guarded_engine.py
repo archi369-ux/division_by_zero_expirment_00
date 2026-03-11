@@ -9,7 +9,6 @@ Capabilities:
 - branch on unresolved denominators
 - apply primitive rule a/0 := a
 - apply guarded simplification (x/x -> 1 if x != 0)
-- apply simple guard-aware reduction in zero branches
 
 This is intentionally minimal and safety-oriented.
 """
@@ -42,6 +41,7 @@ class Guard:
         return Guard(self.zero, self.nonzero | {sp.simplify(expr)})
 
     def is_inconsistent(self) -> bool:
+        # Only reject direct contradictions and numeric impossibilities.
         if self.zero & self.nonzero:
             return True
 
@@ -97,75 +97,21 @@ def classify_denominator(expr: sp.Expr, guard: Guard) -> str:
     return UNKNOWN
 
 
-def _simple_guard_substitutions(guard: Guard) -> dict[sp.Symbol, sp.Expr]:
-    """
-    Very small substitution extractor.
-
-    Supports only patterns like:
-    - x = 0
-    - x - c = 0
-    - x + c = 0
-    where c is numeric
-    """
-    subs: dict[sp.Symbol, sp.Expr] = {}
-
-    for g in guard.zero:
-        s = sp.expand(sp.simplify(g))
-
-        # x = 0
-        if isinstance(s, sp.Symbol):
-            subs[s] = sp.Integer(0)
-            continue
-
-        # Try solving simple one-variable linear equations
-        symbols = list(s.free_symbols)
-        if len(symbols) != 1:
-            continue
-
-        sym = symbols[0]
-        try:
-            sol = sp.solve(sp.Eq(s, 0), sym, dict=True)
-        except Exception:
-            sol = []
-
-        if len(sol) == 1 and sym in sol[0]:
-            val = sp.simplify(sol[0][sym])
-            if val.is_number:
-                subs[sym] = val
-
-    return subs
-
-
-def _apply_guard_reduction(expr: sp.Expr, guard: Guard) -> sp.Expr:
-    """
-    Reduce an expression using very simple equalities from the guard.
-    This is intentionally conservative.
-    """
-    subs = _simple_guard_substitutions(guard)
-    if subs:
-        try:
-            expr = expr.xreplace(subs)
-        except Exception:
-            expr = expr.subs(subs)
-
-    return sp.simplify(expr)
-
-
 def _normalize_quotient(num: sp.Expr, den: sp.Expr, guard: Guard) -> sp.Expr:
     # Only simplify after quotient structure has been isolated.
-    num = _apply_guard_reduction(sp.simplify(num), guard)
-    den = _apply_guard_reduction(sp.simplify(den), guard)
+    num = sp.simplify(num)
+    den = sp.simplify(den)
     status = classify_denominator(den, guard)
 
     if status == ZERO:
-        return _apply_guard_reduction(num, guard)  # primitive rule a/0 := a
+        return sp.simplify(num)  # primitive rule a/0 := a
 
     if status == NONZERO:
         if sp.simplify(num - den) == 0:
             return sp.Integer(1)
 
         try:
-            return _apply_guard_reduction(sp.simplify(sp.cancel(num / den)), guard)
+            return sp.simplify(sp.cancel(num / den))
         except Exception:
             return q(num, den)
 
@@ -175,8 +121,9 @@ def _normalize_quotient(num: sp.Expr, den: sp.Expr, guard: Guard) -> sp.Expr:
 
 def _normalize_under_guard(expr: sp.Expr, guard: Guard) -> sp.Expr:
     # Do not simplify the whole expression up front.
+    # First inspect structure so SymPy does not inject zoo/nan too early.
     if expr.is_Atom:
-        return _apply_guard_reduction(expr, guard)
+        return expr
 
     if isinstance(expr, sp.Pow) and expr.exp == -1:
         den = _normalize_under_guard(expr.base, guard)
@@ -204,29 +151,27 @@ def _normalize_under_guard(expr: sp.Expr, guard: Guard) -> sp.Expr:
             *(num_factors + [sp.Pow(d, -1, evaluate=False) for d in den_factors]),
             evaluate=False,
         )
-        return _apply_guard_reduction(rebuilt, guard)
+        return sp.simplify(rebuilt)
 
     if expr.is_Add:
         args = [_normalize_under_guard(a, guard) for a in expr.args]
-        return _apply_guard_reduction(sp.Add(*args, evaluate=False), guard)
+        return sp.simplify(sp.Add(*args, evaluate=False))
 
     if expr.is_Pow:
         args = [_normalize_under_guard(a, guard) for a in expr.args]
         try:
-            out = expr.func(*args, evaluate=False)
+            return sp.simplify(expr.func(*args, evaluate=False))
         except Exception:
-            out = expr.func(*args)
-        return _apply_guard_reduction(out, guard)
+            return sp.simplify(expr.func(*args))
 
     if expr.is_Function:
-        return _apply_guard_reduction(expr.func(*[_normalize_under_guard(a, guard) for a in expr.args]), guard)
+        return expr.func(*[_normalize_under_guard(a, guard) for a in expr.args])
 
     args = [_normalize_under_guard(a, guard) for a in expr.args]
     try:
-        out = expr.func(*args, evaluate=False)
+        return sp.simplify(expr.func(*args, evaluate=False))
     except Exception:
-        out = expr.func(*args)
-    return _apply_guard_reduction(out, guard)
+        return sp.simplify(expr.func(*args))
 
 
 def find_unknown_denominators(expr: sp.Expr, guard: Guard) -> List[sp.Expr]:
