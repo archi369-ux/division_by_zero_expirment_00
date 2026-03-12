@@ -10,7 +10,6 @@ Capabilities:
 - apply primitive rule a/0 := a
 - apply guarded simplification (x/x -> 1 if x != 0)
 - apply simple guard-aware reduction in zero branches
-- reject some impossible combined guards via bounded linear consistency checks
 
 This is intentionally minimal and safety-oriented.
 """
@@ -18,7 +17,7 @@ This is intentionally minimal and safety-oriented.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Dict, Tuple
+from typing import Iterable, List
 import sympy as sp
 
 ZERO = "ZERO"
@@ -29,43 +28,6 @@ UNKNOWN = "UNKNOWN"
 def q(num: sp.Expr, den: sp.Expr) -> sp.Expr:
     """Construct a protected quotient without eager evaluation."""
     return sp.Mul(num, sp.Pow(den, -1, evaluate=False), evaluate=False)
-
-
-def _single_symbol_linear_value(expr: sp.Expr) -> Tuple[sp.Symbol, sp.Expr] | None:
-    """
-    Try to interpret expr = 0 as a simple one-variable linear equation
-    and return (symbol, numeric_value) if possible.
-
-    Examples:
-    - x       -> (x, 0)
-    - x - 1   -> (x, 1)
-    - x + 2   -> (x, -2)
-
-    Returns None if not simple enough.
-    """
-    s = sp.expand(sp.simplify(expr))
-
-    if isinstance(s, sp.Symbol):
-        return (s, sp.Integer(0))
-
-    symbols = list(s.free_symbols)
-    if len(symbols) != 1:
-        return None
-
-    sym = symbols[0]
-    try:
-        sol = sp.solve(sp.Eq(s, 0), sym, dict=True)
-    except Exception:
-        return None
-
-    if len(sol) != 1 or sym not in sol[0]:
-        return None
-
-    val = sp.simplify(sol[0][sym])
-    if val.is_number:
-        return (sym, val)
-
-    return None
 
 
 @dataclass(frozen=True)
@@ -80,11 +42,9 @@ class Guard:
         return Guard(self.zero, self.nonzero | {sp.simplify(expr)})
 
     def is_inconsistent(self) -> bool:
-        # Direct contradiction: same expression assumed both zero and nonzero.
         if self.zero & self.nonzero:
             return True
 
-        # Numeric contradictions only.
         for z in self.zero:
             s = sp.simplify(z)
             if s.is_number and s != 0:
@@ -94,38 +54,6 @@ class Guard:
             s = sp.simplify(nz)
             if s == 0:
                 return True
-
-        # Bounded linear consistency check across zero-guards.
-        # If two simple equations force different numeric values
-        # for the same symbol, the guard is impossible.
-        implied_values: Dict[sp.Symbol, sp.Expr] = {}
-        for z in self.zero:
-            parsed = _single_symbol_linear_value(z)
-            if parsed is None:
-                continue
-            sym, val = parsed
-            if sym in implied_values and sp.simplify(implied_values[sym] - val) != 0:
-                return True
-            implied_values[sym] = val
-
-        # Check nonzero guards against implied zero-guard values.
-        for nz in self.nonzero:
-            parsed = _single_symbol_linear_value(nz)
-            if parsed is None:
-                continue
-            sym, forbidden_val = parsed
-            if sym in implied_values and sp.simplify(implied_values[sym] - forbidden_val) == 0:
-                return True
-
-        # Also check if a nonzero expression becomes zero under implied substitutions.
-        if implied_values:
-            for nz in self.nonzero:
-                try:
-                    reduced = sp.simplify(nz.xreplace(implied_values))
-                except Exception:
-                    reduced = sp.simplify(nz.subs(implied_values))
-                if reduced == 0:
-                    return True
 
         return False
 
@@ -170,19 +98,49 @@ def classify_denominator(expr: sp.Expr, guard: Guard) -> str:
 
 
 def _simple_guard_substitutions(guard: Guard) -> dict[sp.Symbol, sp.Expr]:
+    """
+    Very small substitution extractor.
+
+    Supports only patterns like:
+    - x = 0
+    - x - c = 0
+    - x + c = 0
+    where c is numeric
+    """
     subs: dict[sp.Symbol, sp.Expr] = {}
 
     for g in guard.zero:
-        parsed = _single_symbol_linear_value(g)
-        if parsed is None:
+        s = sp.expand(sp.simplify(g))
+
+        # x = 0
+        if isinstance(s, sp.Symbol):
+            subs[s] = sp.Integer(0)
             continue
-        sym, val = parsed
-        subs[sym] = val
+
+        # Try solving simple one-variable linear equations
+        symbols = list(s.free_symbols)
+        if len(symbols) != 1:
+            continue
+
+        sym = symbols[0]
+        try:
+            sol = sp.solve(sp.Eq(s, 0), sym, dict=True)
+        except Exception:
+            sol = []
+
+        if len(sol) == 1 and sym in sol[0]:
+            val = sp.simplify(sol[0][sym])
+            if val.is_number:
+                subs[sym] = val
 
     return subs
 
 
 def _apply_guard_reduction(expr: sp.Expr, guard: Guard) -> sp.Expr:
+    """
+    Reduce an expression using very simple equalities from the guard.
+    This is intentionally conservative.
+    """
     subs = _simple_guard_substitutions(guard)
     if subs:
         try:
@@ -194,12 +152,13 @@ def _apply_guard_reduction(expr: sp.Expr, guard: Guard) -> sp.Expr:
 
 
 def _normalize_quotient(num: sp.Expr, den: sp.Expr, guard: Guard) -> sp.Expr:
+    # Only simplify after quotient structure has been isolated.
     num = _apply_guard_reduction(sp.simplify(num), guard)
     den = _apply_guard_reduction(sp.simplify(den), guard)
     status = classify_denominator(den, guard)
 
     if status == ZERO:
-        return _apply_guard_reduction(num, guard)
+        return _apply_guard_reduction(num, guard)  # primitive rule a/0 := a
 
     if status == NONZERO:
         if sp.simplify(num - den) == 0:
@@ -210,10 +169,12 @@ def _normalize_quotient(num: sp.Expr, den: sp.Expr, guard: Guard) -> sp.Expr:
         except Exception:
             return q(num, den)
 
+    # UNKNOWN: keep quotient protected
     return q(num, den)
 
 
 def _normalize_under_guard(expr: sp.Expr, guard: Guard) -> sp.Expr:
+    # Do not simplify the whole expression up front.
     if expr.is_Atom:
         return _apply_guard_reduction(expr, guard)
 
@@ -221,7 +182,7 @@ def _normalize_under_guard(expr: sp.Expr, guard: Guard) -> sp.Expr:
         den = _normalize_under_guard(expr.base, guard)
         status = classify_denominator(den, guard)
         if status == ZERO:
-            return sp.Integer(1)
+            return sp.Integer(1)  # reciprocal case: 1/0 := 1
         return sp.Pow(den, -1, evaluate=False)
 
     if expr.is_Mul:
@@ -307,162 +268,12 @@ def normalize_with_branching(expr: sp.Expr, guard: Guard | None = None, depth: i
     d = unknown[0]
     zero_branch = normalize_with_branching(expr, guard.add_zero(d), depth - 1)
     nonzero_branch = normalize_with_branching(expr, guard.add_nonzero(d), depth - 1)
-    branches = sort_branches(zero_branch + nonzero_branch)
-    return merge_complementary_branches(branches)
+    return sort_branches(zero_branch + nonzero_branch)
 
 
 def sort_branches(branches: Iterable[Branch]) -> List[Branch]:
     return sorted(branches, key=lambda b: (b.guard.format(), sp.sstr(b.expr)))
 
-def merge_complementary_branches(branches: List[Branch]) -> List[Branch]:
-    """
-    Minimal safe merge.
-
-    If two branches have identical outputs and their guards are exact
-    complements (d = 0) vs (d != 0), collapse them to [true] -> expr.
-    """
-
-    merged = []
-    used = set()
-
-    for i, b1 in enumerate(branches):
-        if i in used:
-            continue
-
-        for j, b2 in enumerate(branches):
-            if i >= j or j in used:
-                continue
-
-            if sp.simplify(b1.expr - b2.expr) != 0:
-                continue
-
-            g1 = b1.guard
-            g2 = b2.guard
-
-            # case: one zero, one nonzero guard
-            if (
-                len(g1.zero) == 1
-                and len(g2.nonzero) == 1
-                and list(g1.zero)[0] == list(g2.nonzero)[0]
-                and not g1.nonzero
-                and not g2.zero
-            ):
-
-                merged.append(Branch(Guard(), b1.expr))
-                used.add(i)
-                used.add(j)
-                break
-
-            if (
-                len(g2.zero) == 1
-                and len(g1.nonzero) == 1
-                and list(g2.zero)[0] == list(g1.nonzero)[0]
-                and not g2.nonzero
-                and not g1.zero
-            ):
-
-                merged.append(Branch(Guard(), b1.expr))
-                used.add(i)
-                used.add(j)
-                break
-
-        if i not in used:
-            merged.append(b1)
-
-    return merged
-
-@dataclass(frozen=True)
-class EquationBranch:
-    guard: Guard
-    lhs: sp.Expr
-    rhs: sp.Expr
-
-    def format(self) -> str:
-        return f"[{self.guard.format()}] -> {sp.sstr(self.lhs)} = {sp.sstr(self.rhs)}"
-
-
-def normalize_equation(lhs: sp.Expr, rhs: sp.Expr, depth: int = 4) -> List[EquationBranch]:
-    """
-    Branch-normalize an equation by branching on denominators from the lhs,
-    then normalizing both sides under the resulting guard.
-
-    This is intentionally minimal.
-    """
-    lhs_branches = normalize_with_branching(lhs, depth=depth)
-    out: List[EquationBranch] = []
-
-    for br in lhs_branches:
-        rhs_norm = _normalize_under_guard(rhs, br.guard)
-        out.append(EquationBranch(br.guard, sp.simplify(br.expr), sp.simplify(rhs_norm)))
-
-    return out
-
-
-def classify_equation_branch(branch: EquationBranch) -> str:
-    """
-    Very small branch classifier.
-
-    Returns:
-    - 'TAUTOLOGY'
-    - 'CONTRADICTION'
-    - 'RESIDUAL'
-    """
-    diff = _apply_guard_reduction(sp.simplify(branch.lhs - branch.rhs), branch.guard)
-
-    if diff == 0:
-        return "TAUTOLOGY"
-
-    if diff.is_number and diff != 0:
-        return "CONTRADICTION"
-
-    return "RESIDUAL"
-
-
-def solve_equation_branches(lhs: sp.Expr, rhs: sp.Expr, depth: int = 4) -> List[tuple[str, EquationBranch]]:
-    """
-    Normalize equation branches and classify each one.
-    """
-    branches = normalize_equation(lhs, rhs, depth=depth)
-    return [(classify_equation_branch(br), br) for br in branches]
-
-def solve_simple_residual_branch(branch: EquationBranch):
-    """
-    Try to solve a simple residual equation under a branch guard.
-
-    Returns:
-    - None if not solved
-    - a SymPy solution object if solved
-    """
-    expr = _apply_guard_reduction(sp.simplify(branch.lhs - branch.rhs), branch.guard)
-    symbols = sorted(expr.free_symbols, key=lambda s: s.name)
-
-    if len(symbols) != 1:
-        return None
-
-    sym = symbols[0]
-
-    try:
-        sols = sp.solve(sp.Eq(expr, 0), sym, dict=True)
-    except Exception:
-        return None
-
-    if not sols:
-        return []
-    return sols
-
-
-def solve_equation_branches_with_residuals(lhs: sp.Expr, rhs: sp.Expr, depth: int = 4):
-    """
-    Normalize equation branches, classify them, and try to solve simple residuals.
-    """
-    out = []
-    for status, br in solve_equation_branches(lhs, rhs, depth=depth):
-        if status == "RESIDUAL":
-            solved = solve_simple_residual_branch(br)
-            out.append((status, br, solved))
-        else:
-            out.append((status, br, None))
-    return out
 
 def demo() -> None:
     x, y = sp.symbols("x y")
