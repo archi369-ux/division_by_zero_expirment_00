@@ -1,182 +1,161 @@
-# Division by 0 — Branch Arithmetic and Zero-Set Detector Experiments
+# Division by 0 — Branch-Aware Guarded Algebra
 
-This repository collects a developing formalism for **branch-evaluated arithmetic** built around the rule
+A research-style symbolic algebra prototype built around the primitive rule:
 
-- `a / 0 := a`
+```text
+a / 0 := a
+```
 
-interpreted **not** as inverse division, but as a **rewrite / erasure rule**.
+This rule is **not** interpreted as inverse division. Instead, the project treats division by zero as a **branch-sensitive rewrite rule** inside a guarded symbolic framework.
 
-The project does **not** claim to extend ordinary field arithmetic in the classical sense. Instead, it develops a guarded symbolic system in which:
+## What this repo is trying to achieve
 
-- division has a **zero branch** and a **nonzero branch**,
-- zero denominators are handled by **branch splitting** rather than immediate failure,
-- ordinary algebra is preserved only on **NZ-branches**,
-- hidden zero denominators are detected by a dedicated normalization engine,
-- equation solving returns **guarded solution objects** rather than forcing one global expression.
+The project is not trying to replace ordinary arithmetic or claim a new field structure.
 
----
+It is trying to build a **branch-aware symbolic system** that:
+
+- preserves zero and nonzero denominator cases explicitly
+- blocks illegal nonzero-only rewrites before branching
+- supports guarded normalization of expressions
+- supports branch-first equation solving
+- returns guarded or extracted solutions instead of forcing one global simplification
+
+In plain terms:
+
+> turn “division by zero breaks everything” into a controlled symbolic case split.
 
 ## Core idea
 
 For a quotient `A / B`:
 
-- if `B` normalizes to `0`, then `A / B -> A`
-- if `B` normalizes to nonzero, then ordinary division applies
-- if `B` is unresolved, both branches are retained
+- if `B` is proven zero, rewrite `A / B -> A`
+- if `B` is proven nonzero, ordinary algebra is allowed locally
+- if `B` is unresolved, keep both branches
 
-This leads to **Branch Normal Form** outputs such as:
+Typical output:
 
-- `[B = 0] -> A`
-- `[B != 0] -> A / B`
+```text
+[B = 0]  -> A
+[B != 0] -> A / B
+```
 
-rather than prematurely collapsing to a single expression.
+instead of collapsing too early.
 
----
+## Hard constraint: the branch firewall
 
-## Hard constraint
+The central rule of the repo is:
 
-A central rule of the system is the **branch firewall**:
+> No simplification that requires a denominator to be nonzero may be applied before branch split.
 
-> No simplification that requires a denominator to be nonzero may be used before branch split.
+So these are **not allowed globally**:
 
-So moves like cancellation across the main quotient, cross-multiplication, and inverse-style division laws are treated as **NZ-branch-only**.
+- `x / x -> 1`
+- factor cancellation across a denominator
+- denominator clearing
+- cross multiplication
 
----
+They become legal only inside a branch whose guard proves the denominator is nonzero.
 
-## Semantic base
+## Current repository state
 
-This repo builds on the earlier **Zero-Set Detector Algebra** idea, especially:
+The repo currently contains the root files `README.md` and `README-1.md`, and a main folder called `division_by_zero_repo_bundle`. The repo page currently presents the project as “Division by 0 — Branch Arithmetic and Zero-Set Detector Experiments.” citeturn374222view0
 
-- bottom-up denominator evaluation,
-- the primitive rule `a/0 := a`,
-- detector functions
-  - `D_f := 1 - f/f`  (zero detector)
-  - `N_f := f/f`      (nonzero detector)
-- detector laws such as
-  - `D_f + N_f = 1`
-  - `D_f N_f = 0`
+The current README already frames the project as a guarded symbolic system built around `a / 0 := a`, with branch splitting, NZ-only ordinary algebra, hidden-zero detection, and guarded equation solving. citeturn374222view0
 
-These detectors are used as formal guards whenever possible.
+## Recommended reading order
 
----
+For a new reader, this is the cleanest order:
 
-## Repository contents
+1. `README.md`
+2. `division_by_zero_repo_bundle/core_semantics_v1.md`
+3. `division_by_zero_repo_bundle/rewrite_rules_v1.md`
+4. `division_by_zero_repo_bundle/denominator_classifier_v1.md`
+5. `division_by_zero_repo_bundle/normal_form_engine_v1.md`
+6. `division_by_zero_repo_bundle/branch_merge_and_equivalence_v1.md`
+7. `division_by_zero_repo_bundle/solver_semantics_v1.md`
+8. `division_by_zero_repo_bundle/solver_acceptance_tests_v1.md`
+9. prototype Python engine and stress-test runner
 
-### Main documents
+## Suggested folder intent
 
-- `repo_index_document_map_v1.md`
-  - navigation map across the full repo
-- `branch_arithmetic_draft.md`
-  - high-level draft of the branch arithmetic framework
-- `equation_solver_draft_v1.md`
-  - first solver rules and worked examples
-- `unified_branch_solver_spec_v1.md`
-  - unified pipeline: expression branching first, equation solving second
-- `branch_local_soundness_notes_v1.md`
-  - branch-local soundness notes for the solver kernel
-- `minimal_theorem_list_v1.md`
-  - compact list of the current named theorem-level claims
+The repo is strongest when read as three layers:
 
-### Reference text mirrors
+### 1. Specs
+These define the formal behavior:
 
-- `branch_arithmetic_draft.txt`
-- `branch_local_soundness_notes_v1.txt`
+- `core_semantics_v1.md`
+- `rewrite_rules_v1.md`
+- `denominator_classifier_v1.md`
+- `normal_form_engine_v1.md`
+- `branch_merge_and_equivalence_v1.md`
+- `solver_semantics_v1.md`
+- `solver_acceptance_tests_v1.md`
 
-### Python tools
+### 2. Prototype engine
+These implement the current behavior experimentally:
 
-- `branch_equation_verifier.py`
-  - first kernel verifier for equation schema cases
-- `branch_equation_parser_verifier.py`
-  - parser-based verifier for equation strings
-- `branch_normal_form_engine.py`
-  - branch-normal-form equation engine with denominator classification
-- `branch_expression_normal_form_engine.py`
-  - expression-level branch normal form engine
+- `minimal_guarded_engine.py`
+- `run_stress_tests.py`
 
-### Sample outputs
+### 3. Legacy / exploratory drafts
+These preserve the evolution of the idea:
 
-- `branch_equation_verifier_output.txt`
-- `branch_equation_parser_verifier_output.txt`
-- `branch_normal_form_engine_output.txt`
-- `branch_expression_normal_form_engine_output.txt`
+- earlier branch arithmetic drafts
+- detector-algebra notes
+- older verifier scripts
+- historical outputs
 
-### Helper
+## What is already working
 
-- `github_publish_commands.txt`
-  - example shell commands for publishing files to GitHub
+The current prototype direction is strong on:
 
----
+- primitive zero-denominator evaluation
+- branch-first normalization
+- guarded simplification on nonzero branches
+- simple guard-aware reductions
+- basic branch-aware equation classification
+- simple residual solving
+- first-pass solution extraction
 
-## Current status
+## What is not yet claimed
 
-### Established
+This repo does **not** currently claim:
 
-- branch firewall
-- branch-normal-form output shape
-- denominator normalization pipeline
-- hidden-zero detection modules
-- solver kernel v1
-- branch-local soundness notes
-- small experimental verifier tools
-
-### Not yet claimed
-
-- full confluence proof
-- full completeness proof
 - classical field semantics
-- analytic / calculus semantics
+- full confluence
+- full completeness
+- calculus or analytic semantics
 - unrestricted symbolic simplification
+- full multivariable solving
 
----
+## Best interpretation
 
-## Intended interpretation
+This repo should be read as:
 
-This project is best read as:
+> a branch-sensitive symbolic rewrite and solving framework for zero/nonzero denominator reasoning
 
-> a **branch-sensitive symbolic rewrite system** with detector-backed guards,
-> not as a drop-in replacement for standard arithmetic.
+and **not** as:
 
-It is primarily aimed at:
+> a drop-in replacement for ordinary arithmetic.
 
-- guarded symbolic reasoning,
-- explicit zero/nonzero case preservation,
-- experimental formal systems around division by zero,
-- equation solving with branch-aware semantics.
+## Tidy-up recommendations
 
----
+The repo would be cleaner with these changes:
 
-## Suggested reading order
+1. Keep a single root `README.md` and remove or archive `README-1.md`.
+2. Keep current production files inside `division_by_zero_repo_bundle/`.
+3. Add a small `LICENSE` file if you want reuse by others.
+4. Consider renaming the repo later from `division_by_zero_expirment_00` to `division_by_zero_experiment_00` for polish.
+5. Separate files into:
+   - `specs/`
+   - `engine/`
+   - `legacy/`
+   in a later cleanup pass.
 
-1. `repo_index_document_map_v1.md`
-2. `branch_arithmetic_draft.md`
-3. `equation_solver_draft_v1.md`
-4. `unified_branch_solver_spec_v1.md`
-5. `branch_local_soundness_notes_v1.md`
-6. `formal_axioms_inference_rules_v1.md`
-7. `minimal_theorem_list_v1.md`
-8. Python tools and sample outputs
+## Immediate next milestone
 
----
+The next meaningful milestone is:
 
-## Scope boundary
+> stabilize the current solver prototype against the acceptance-test suite before expanding the theory further.
 
-This repository currently focuses on:
-
-- expressions built from `+`, `-`, `*`, `/`
-- guarded branch evaluation
-- denominator-zero detection
-- branch-aware equation solving
-
-It intentionally avoids making stronger claims about:
-
-- limits,
-- continuity,
-- derivatives,
-- unrestricted polynomial identity solving,
-- equivalence with ordinary algebra outside guarded NZ-branches.
-
----
-
-## License / publication note
-
-No license file is included in this bundle by default. If you want this repo to be reusable by others, add a license explicitly before publishing.
+That keeps the project grounded and makes future changes easier to evaluate.
