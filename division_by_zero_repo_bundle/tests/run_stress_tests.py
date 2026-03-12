@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sympy as sp
-from division_by_zero_repo_bundle.minimal_guarded_engine import Guard, normalize_with_branching, _normalize_under_guard, q, solve_equation_branches, solve_equation_branches_with_residuals
+from engine.minimal_guarded_engine import Guard, normalize_with_branching, _normalize_under_guard, q, solve_equation_branches, solve_equation_branches_with_residuals
 
 
 def show(expr: sp.Expr) -> None:

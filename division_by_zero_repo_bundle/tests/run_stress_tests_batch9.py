@@ -1,6 +1,6 @@
 from __future__ import annotations
 import sympy as sp
-from minimal_guarded_engine import (
+from division_by_zero_repo_bundle.engine.minimal_guarded_engine import (
     Guard, normalize_with_branching, _normalize_under_guard, q,
     solve_equation_branches, solve_equation_branches_with_residuals,
     extract_solution_branches, format_solution_set,
