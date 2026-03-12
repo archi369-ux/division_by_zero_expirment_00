@@ -48,6 +48,16 @@ def _single_symbol_linear_value(expr: sp.Expr) -> Tuple[sp.Symbol, sp.Expr] | No
     return None
 
 @dataclass(frozen=True)
+class SolutionBranch:
+    guard: Guard
+    solution: sp.Expr
+
+    def format(self) -> str:
+        if self.guard.format() == "true":
+            return f"[true] -> {sp.sstr(self.solution)}"
+        return f"[{self.guard.format()}] -> {sp.sstr(self.solution)}"
+
+@dataclass(frozen=True)
 class Guard:
     zero: frozenset[sp.Expr] = frozenset()
     nonzero: frozenset[sp.Expr] = frozenset()
@@ -333,25 +343,24 @@ def solve_equation_branches_with_residuals(lhs: sp.Expr, rhs: sp.Expr, depth: in
 
 def _solutions_from_guard_tautology(branch: EquationBranch):
     """
-    Extract a simple solution from a tautology branch.
+    Extract a solution condition from a tautology branch.
 
-    Cases:
-    - [x - 1 = 0] -> 1 = 1     gives   Eq(x, 1)
-    - [x != 0]    -> 1 = 1     gives   Ne(x, 0)
-
-    This stays intentionally conservative.
+    Priority:
+    1. exact fixed-value equalities like x-1=0 -> Eq(x,1)
+    2. otherwise preserve the full guard as a condition
     """
     subs = _simple_guard_substitutions(branch.guard)
+
     if len(subs) == 1:
         sym = next(iter(subs))
         val = sp.simplify(subs[sym])
         return sp.Eq(sym, val)
 
-    if len(branch.guard.nonzero) == 1 and not branch.guard.zero:
-        expr = next(iter(branch.guard.nonzero))
-        return sp.Ne(expr, 0)
+    cond = guard_to_condition(branch.guard)
+    if cond is sp.true:
+        return sp.true
 
-    return None
+    return cond
 
 def dedupe_solution_branches(branches: List[SolutionBranch]) -> List[SolutionBranch]:
     seen = set()
@@ -365,24 +374,197 @@ def dedupe_solution_branches(branches: List[SolutionBranch]) -> List[SolutionBra
 
 def extract_solution_branches(lhs: sp.Expr, rhs: sp.Expr, depth: int = 4) -> List[SolutionBranch]:
     out: List[SolutionBranch] = []
+
     for status, br, solved in solve_equation_branches_with_residuals(lhs, rhs, depth=depth):
         if status == "CONTRADICTION":
             continue
+
         if status == "TAUTOLOGY":
             sol = _solutions_from_guard_tautology(br)
             if sol is not None:
                 out.append(SolutionBranch(Guard(), sol))
             continue
-        if status == "RESIDUAL" and solved is not None:
-            for item in solved:
-                if isinstance(item, dict) and len(item) == 1:
-                    sym = next(iter(item))
-                    val = sp.simplify(item[sym])
-                    out.append(SolutionBranch(Guard(), sp.Eq(sym, val)))
+
+        if status == "RESIDUAL":
+            # Case 1: solver found explicit point solutions
+            if solved is not None and solved != []:
+                emitted_any = False
+                for item in solved:
+                    if isinstance(item, dict) and len(item) == 1:
+                        sym = next(iter(item))
+                        val = sp.simplify(item[sym])
+                        sol_expr = sp.Eq(sym, val)
+
+                        if br.guard.format() == "true" or _guard_holds_for_point_solution(br.guard, sol_expr):
+                            out.append(SolutionBranch(Guard(), sol_expr))
+                        else:
+                            out.append(SolutionBranch(br.guard, sol_expr))
+                        emitted_any = True
+
+                if emitted_any:
+                    continue
+
+            # Case 2: residual relation fallback
+            rel = residual_branch_to_relation(br)
+            rel = simplify_guarded_relation(rel, br.guard)
+
+            # Drop impossible / false relations
+            if rel is sp.false or rel == sp.false or rel is False:
+                continue
+
+            if rel is sp.true or rel == sp.true:
+                out.append(SolutionBranch(Guard(), sp.true))
+            elif br.guard.format() == "true":
+                out.append(SolutionBranch(Guard(), rel))
+            else:
+                out.append(SolutionBranch(br.guard, rel))
+
     return dedupe_solution_branches(out)
+
+def _guard_holds_for_point_solution(guard: Guard, solution_expr: sp.Expr) -> bool:
+    """
+    Check whether a point solution like Eq(x, a) already satisfies the guard.
+
+    If yes, the guard can be discharged from the extracted solution branch.
+    """
+    if not isinstance(solution_expr, sp.Equality):
+        return False
+
+    lhs, rhs = solution_expr.lhs, sp.simplify(solution_expr.rhs)
+
+    if not isinstance(lhs, sp.Symbol):
+        return False
+
+    subs = {lhs: rhs}
+
+    for z in guard.zero:
+        try:
+            reduced = sp.simplify(z.xreplace(subs))
+        except Exception:
+            reduced = sp.simplify(z.subs(subs))
+        if reduced != 0:
+            return False
+
+    for nz in guard.nonzero:
+        try:
+            reduced = sp.simplify(nz.xreplace(subs))
+        except Exception:
+            reduced = sp.simplify(nz.subs(subs))
+        if reduced == 0:
+            return False
+
+    return True
 
 def format_solution_set(branches: List[SolutionBranch]) -> str:
     if not branches:
         return "no solutions"
-    parts = [sp.sstr(br.solution) if br.guard.format() == "true" else br.format() for br in branches]
+
+    parts = []
+    for br in branches:
+        if br.guard.format() == "true":
+            if br.solution is sp.true or br.solution == sp.true:
+                parts.append("true")
+            else:
+                parts.append(sp.sstr(br.solution))
+        else:
+            parts.append(br.format())
+
     return " or ".join(parts)
+
+def guard_to_condition(guard: Guard):
+    """
+    Convert a guard into a SymPy-readable condition object when possible.
+
+    Examples:
+    - x = 0          -> Eq(x, 0)
+    - x != 0         -> Ne(x, 0)
+    - x = 0, y != 0  -> And(Eq(x, 0), Ne(y, 0))
+    - true           -> True
+    """
+    atoms = []
+
+    for z in sorted(guard.zero, key=sp.sstr):
+        atoms.append(sp.Eq(z, 0))
+
+    for nz in sorted(guard.nonzero, key=sp.sstr):
+        atoms.append(sp.Ne(nz, 0))
+
+    if not atoms:
+        return sp.true
+    if len(atoms) == 1:
+        return atoms[0]
+    return sp.And(*atoms)
+
+def residual_branch_to_relation(branch: EquationBranch):
+    """
+    Convert a residual branch into a guarded relation object.
+
+    Prefer a simplified equality. If possible, reduce lhs-rhs = 0 first.
+    """
+    lhs = _apply_guard_reduction(sp.simplify(branch.lhs), branch.guard)
+    rhs = _apply_guard_reduction(sp.simplify(branch.rhs), branch.guard)
+
+    if lhs == rhs:
+        return sp.true
+
+    diff = _apply_guard_reduction(sp.simplify(lhs - rhs), branch.guard)
+
+    if diff == 0:
+        return sp.true
+
+    # Prefer Eq(diff, 0) when it is cleaner than Eq(lhs, rhs)
+    eq1 = sp.Eq(lhs, rhs)
+    eq2 = sp.Eq(diff, 0)
+
+    if len(sp.sstr(eq2)) <= len(sp.sstr(eq1)):
+        return eq2
+    return eq1
+
+def simplify_guarded_relation(rel: sp.Expr, guard: Guard) -> sp.Expr:
+    """
+    Canonicalize simple guarded relations.
+
+    Main target:
+    [y != 0] -> Eq(x/y, 1)   ==>   Eq(x, y)
+
+    Only apply rewrites justified by the guard.
+    """
+    if not isinstance(rel, sp.Equality):
+        return rel
+
+    lhs = _apply_guard_reduction(sp.simplify(rel.lhs), guard)
+    rhs = _apply_guard_reduction(sp.simplify(rel.rhs), guard)
+
+    # Case 1: Eq(A/B, C) with denominator proven nonzero
+    if lhs.is_Mul:
+        den_factors = []
+        num_factors = []
+        for a in lhs.args:
+            if isinstance(a, sp.Pow) and a.exp == -1:
+                den_factors.append(sp.simplify(a.base))
+            else:
+                num_factors.append(a)
+
+        if len(den_factors) == 1:
+            den = den_factors[0]
+            if classify_denominator(den, guard) == NONZERO:
+                num = sp.simplify(sp.Mul(*num_factors)) if num_factors else sp.Integer(1)
+                return sp.Eq(sp.simplify(num), sp.simplify(rhs * den))
+
+    # Case 2: Eq(C, A/B) with denominator proven nonzero
+    if rhs.is_Mul:
+        den_factors = []
+        num_factors = []
+        for a in rhs.args:
+            if isinstance(a, sp.Pow) and a.exp == -1:
+                den_factors.append(sp.simplify(a.base))
+            else:
+                num_factors.append(a)
+
+        if len(den_factors) == 1:
+            den = den_factors[0]
+            if classify_denominator(den, guard) == NONZERO:
+                num = sp.simplify(sp.Mul(*num_factors)) if num_factors else sp.Integer(1)
+                return sp.Eq(sp.simplify(lhs * den), sp.simplify(num))
+
+    return sp.Eq(lhs, rhs)
